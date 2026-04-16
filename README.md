@@ -148,7 +148,7 @@ AI-planned multi-step backward synthesis routes:
 
 ## Request Access
 
-Contact your administrator to receive a partner API key.
+Contact info@diskoverdiagnostics.com to receive a partner API key.
 
 ---
 
