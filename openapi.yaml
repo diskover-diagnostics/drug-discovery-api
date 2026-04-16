@@ -1,0 +1,786 @@
+openapi: 3.0.3
+info:
+  title: Drug Discovery API
+  description: >
+    Six AI-powered computational biology endpoints via a single authenticated REST service.
+    All tasks share the same base URL and authentication layer.
+    Authentication: X-API-Key header OR Authorization Bearer token.
+  version: 1.1.0
+  contact:
+    name: Drug Discovery API Support
+
+servers:
+  - url: https://drug-discovery-orchestrator.fly.dev
+    description: Production
+
+security:
+  - ApiKeyHeader: []
+  - BearerAuth: []
+
+components:
+  securitySchemes:
+    ApiKeyHeader:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: Partner API key (used by Gradio HF Space demo)
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: Partner API key as Bearer token (standard REST clients)
+
+  schemas:
+    # ── Molecule Generation ──────────────────────────────────────────────────
+    MoleculeGenerationRequest:
+      type: object
+      required: [inputs]
+      properties:
+        inputs:
+          type: object
+          required: [masked_smiles, top_k, filter_valid]
+          properties:
+            masked_smiles:
+              type: string
+              description: SMILES string with one or more <mask> tokens
+              example: "CC(C)Cc1ccc(C(C)<mask>C(=O)O)cc1"
+            top_k:
+              type: integer
+              minimum: 1
+              maximum: 20
+              description: Number of top completions to return
+              example: 5
+            filter_valid:
+              type: boolean
+              description: If true, return only chemically valid molecules
+              example: true
+
+    MoleculeGenerationResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+        model_info:
+          type: object
+          properties:
+            name:
+              type: string
+              example: ChemBERTa-masked-SMILES
+        statistics:
+          type: object
+          properties:
+            total_completions:
+              type: integer
+            valid_molecules:
+              type: integer
+            drug_like_molecules:
+              type: integer
+        completed_molecules:
+          type: array
+          items:
+            type: object
+            properties:
+              completed_smiles:
+                type: string
+              score:
+                type: number
+                format: float
+                description: Model quality score (0–1; higher = better)
+              drug_like:
+                type: boolean
+              lipinski_violations:
+                type: integer
+                description: Number of Lipinski Rule-of-Five violations (0–4)
+              properties:
+                type: object
+                properties:
+                  molecular_weight:
+                    type: number
+                  logp:
+                    type: number
+                  hbd:
+                    type: integer
+                  hba:
+                    type: integer
+                  tpsa:
+                    type: number
+                  rotatable_bonds:
+                    type: integer
+
+    # ── Property Prediction ──────────────────────────────────────────────────
+    PropertyPredictionRequest:
+      type: object
+      required: [inputs]
+      properties:
+        inputs:
+          type: object
+          required: [smiles_list, tasks]
+          properties:
+            smiles_list:
+              type: array
+              items:
+                type: string
+              description: One or more valid SMILES strings
+              example: ["CC(=O)Oc1ccccc1C(=O)O"]
+            tasks:
+              type: array
+              items:
+                type: string
+                enum:
+                  - solubility
+                  - toxicity
+                  - bioavailability
+                  - bbb_penetration
+                  - cyp_inhibition
+                  - herg_cardiotoxicity
+                  - caco2_permeability
+                  - lipophilicity
+              description: Property tasks to predict
+        parameters:
+          type: object
+          description: Reserved for future parameters
+          default: {}
+
+    PropertyPredictionResponse:
+      type: array
+      items:
+        type: object
+        properties:
+          smiles:
+            type: string
+          properties:
+            type: object
+            properties:
+              solubility:
+                type: number
+                description: "0–1 classification probability (>0.5 = soluble)"
+              toxicity:
+                type: number
+                description: "0–1 classification probability (>0.5 = toxic)"
+              bioavailability:
+                type: number
+                description: "0–1 classification probability (>0.5 = orally bioavailable)"
+              bbb_penetration:
+                type: number
+                description: "0–1 classification probability (>0.5 = BBB penetrant)"
+              cyp_inhibition:
+                type: object
+                description: Per-isoform inhibition probabilities (0–1)
+                properties:
+                  CYP3A4:
+                    type: number
+                  CYP2D6:
+                    type: number
+                  CYP2C9:
+                    type: number
+                  CYP2C19:
+                    type: number
+                  CYP1A2:
+                    type: number
+              herg_cardiotoxicity:
+                type: number
+                description: "0–1 classification probability (>0.5 = hERG inhibitor)"
+              caco2_permeability:
+                type: number
+                description: "Regression score −1 to 0 (closer to 0 = higher permeability)"
+              lipophilicity:
+                type: number
+                description: "Regression score −1 to 0 (closer to 0 = more lipophilic)"
+          molecular_descriptors:
+            type: object
+            properties:
+              molecular_weight:
+                type: number
+              logp:
+                type: number
+              hbd:
+                type: integer
+              hba:
+                type: integer
+              tpsa:
+                type: number
+              rotatable_bonds:
+                type: integer
+
+    # ── Drug–Target Interaction ──────────────────────────────────────────────
+    DTIRequest:
+      type: object
+      required: [inputs]
+      properties:
+        inputs:
+          type: object
+          required: [drug_smiles, target_sequence, target_name, drug_encoding, target_encoding]
+          properties:
+            drug_smiles:
+              type: string
+              description: SMILES string of the drug molecule
+              example: "CC(=O)Oc1ccccc1C(=O)O"
+            target_sequence:
+              type: string
+              description: Single-letter amino-acid sequence of the target protein
+              example: "MLARALLLCAVLALSHTANPCC..."
+            target_name:
+              type: string
+              description: Human-readable label for the target
+              example: "COX-2"
+            drug_encoding:
+              type: string
+              enum: [MPNN, CNN, Morgan, Daylight, rdkit_2d_normalized]
+              description: Drug molecular representation method
+              example: MPNN
+            target_encoding:
+              type: string
+              enum: [CNN, Transformer, AAC, PseAAC, Conjoint_triad]
+              description: Protein sequence encoding method
+              example: CNN
+        parameters:
+          type: object
+          default: {}
+
+    DTIResponse:
+      type: object
+      properties:
+        drug_smiles:
+          type: string
+        target_name:
+          type: string
+        target_sequence_length:
+          type: integer
+        binding_prediction:
+          type: object
+          properties:
+            binding_affinity:
+              type: number
+              description: Predicted binding affinity (lower/more negative = stronger binding)
+            confidence:
+              type: number
+              description: Model certainty (0–1)
+            interaction_strength:
+              type: string
+              enum: [Strong, Moderate, Weak]
+            clinical_relevance:
+              type: string
+              enum: [High, Medium, Low]
+            prediction_method:
+              type: string
+        drug_properties:
+          type: object
+        protein_properties:
+          type: object
+
+    # ── Molecular Docking (DiffDock) ─────────────────────────────────────────
+    DiffDockRequest:
+      type: object
+      required: [inputs]
+      properties:
+        inputs:
+          type: object
+          required: [ligand_smiles, protein_sequence]
+          properties:
+            ligand_smiles:
+              type: string
+              description: SMILES string of the ligand
+              example: "CC(C)Cc1ccc(cc1)C(C)C(=O)O"
+            protein_sequence:
+              type: string
+              description: Protein amino-acid sequence (single-letter code; FASTA accepted)
+              example: "MENFQKVEKIGEGTYGVVYK..."
+            complex_name:
+              type: string
+              description: Human-readable label for the complex
+              default: complex
+              example: cdk2_ibuprofen
+        parameters:
+          type: object
+          properties:
+            samples_per_complex:
+              type: integer
+              minimum: 1
+              maximum: 10
+              default: 2
+              description: Number of binding poses to generate
+            inference_steps:
+              type: integer
+              minimum: 1
+              maximum: 50
+              default: 4
+              description: Number of diffusion inference steps
+
+    DiffDockResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        complex_name:
+          type: string
+        ligand_smiles:
+          type: string
+        num_poses:
+          type: integer
+        best_confidence:
+          type: number
+          description: Highest pose confidence (≈ −5 to +5; >0 = likely near-native)
+        best_estimated_dG_kcal_mol:
+          type: number
+          description: ΔG proxy for best pose (kcal/mol) — empirical only
+        ligand_properties:
+          type: object
+        poses:
+          type: array
+          items:
+            type: object
+            properties:
+              rank:
+                type: integer
+              confidence:
+                type: number
+              estimated_dG_kcal_mol:
+                type: number
+              pose_centroid_xyz:
+                type: object
+                properties:
+                  x:
+                    type: number
+                  y:
+                    type: number
+                  z:
+                    type: number
+        protein_pdb:
+          type: string
+          description: Full protein structure in PDB format
+
+    # ── Pose Rescoring (GNINA) ───────────────────────────────────────────────
+    GninaRequest:
+      type: object
+      required: [inputs]
+      properties:
+        inputs:
+          type: object
+          required: [diffdock_output]
+          properties:
+            diffdock_output:
+              type: object
+              description: Complete JSON response from /diffdock-hf
+            top_n_poses:
+              type: integer
+              minimum: 1
+              maximum: 20
+              default: 2
+              description: Number of top DiffDock poses to rescore
+        parameters:
+          type: object
+          properties:
+            score_only:
+              type: boolean
+              default: true
+              description: Score without energy minimisation (faster)
+            seed:
+              type: integer
+              default: 0
+            cpu:
+              type: integer
+              default: 4
+              description: Number of CPU threads
+
+    GninaResponse:
+      type: object
+      properties:
+        complex_name:
+          type: string
+        num_scored:
+          type: integer
+        num_input_poses:
+          type: integer
+        mode:
+          type: string
+        best_minimizedAffinity:
+          type: number
+          description: "Best minimized affinity (kcal/mol; more negative = stronger)"
+        best_CNNscore:
+          type: number
+          description: "Best CNN score (0–1; >0.5 = likely active binder)"
+        best_CNNaffinity:
+          type: number
+          description: "Best CNN affinity (pKi/pKd; 6 ≈ 1 µM, 9 ≈ 1 nM)"
+        scored_poses:
+          type: array
+          items:
+            type: object
+            properties:
+              diffdock_rank:
+                type: integer
+              diffdock_confidence:
+                type: number
+              minimizedAffinity:
+                type: number
+              CNNscore:
+                type: number
+              CNNaffinity:
+                type: number
+
+    # ── Retrosynthesis ───────────────────────────────────────────────────────
+    RetrosynthesisRequest:
+      type: object
+      required: [inputs]
+      properties:
+        inputs:
+          type: object
+          required: [target_smiles]
+          properties:
+            target_smiles:
+              type: string
+              description: SMILES of the target molecule to synthesise
+              example: "CC1=CC=C(C=C1)C2=CC(=NN2C3=CC=C(C=C3)S(=O)(=O)N)C(F)(F)F"
+            max_depth:
+              type: integer
+              minimum: 1
+              maximum: 10
+              default: 5
+              description: Maximum retrosynthetic depth
+            min_confidence:
+              type: number
+              minimum: 0.0
+              maximum: 1.0
+              default: 0.3
+              description: Minimum step confidence threshold
+        parameters:
+          type: object
+          default: {}
+
+    RetrosynthesisResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        target_molecule:
+          type: string
+        routes_found:
+          type: integer
+        best_route_feasibility:
+          type: number
+        model_info:
+          type: object
+        synthesis_routes:
+          type: array
+          items:
+            type: object
+            properties:
+              route_id:
+                type: integer
+              feasibility_score:
+                type: number
+                description: "0–1; higher = more synthetically feasible"
+              synthetic_accessibility:
+                type: number
+                description: "SA score 1–10; drug candidates typically 1–4"
+              overall_yield:
+                type: string
+              total_steps:
+                type: integer
+              estimated_cost:
+                type: string
+              estimated_time:
+                type: string
+              starting_materials:
+                type: array
+                items:
+                  type: string
+              steps:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    step:
+                      type: integer
+                    reaction_type:
+                      type: string
+                    reactants:
+                      type: array
+                      items:
+                        type: string
+                    confidence:
+                      type: number
+                    yield_estimate:
+                      type: string
+                    conditions:
+                      type: object
+                      properties:
+                        solvent:
+                          type: string
+                        temperature:
+                          type: string
+                        catalyst:
+                          type: string
+                        time:
+                          type: string
+
+    # ── Errors ────────────────────────────────────────────────────────────────
+    ErrorResponse:
+      type: object
+      properties:
+        detail:
+          description: Error message or nested error object from HF endpoint
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      description: Returns orchestrator status and list of configured HF endpoints. No authentication required.
+      security: []
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    example: true
+                  partners_registered:
+                    type: integer
+                    example: 2
+                  hf_token_set:
+                    type: boolean
+                    example: true
+                  endpoints:
+                    type: array
+                    items:
+                      type: string
+                    example:
+                      - molecule-generation
+                      - property-prediction
+                      - drug-target-interaction
+                      - diffdock-hf
+                      - gnina-hf
+                      - retrosynthesis
+
+  /molecule-generation:
+    post:
+      summary: Molecule Generation
+      description: >
+        Fill <mask> tokens in a partial SMILES string to generate novel drug-like candidate molecules.
+        Returns top-K completions with Lipinski drug-likeness and molecular descriptors.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MoleculeGenerationRequest'
+            example:
+              inputs:
+                masked_smiles: "CC(C)Cc1ccc(C(C)<mask>C(=O)O)cc1"
+                top_k: 5
+                filter_valid: true
+      responses:
+        '200':
+          description: Successful molecule generation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MoleculeGenerationResponse'
+        '401':
+          description: Missing API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /property-prediction:
+    post:
+      summary: Property Prediction (ADMET)
+      description: >
+        Predict up to 8 ADMET and physicochemical properties for one or more SMILES strings.
+        Uses MTL-BERT (Zhang et al. 2022). Classification properties output 0–1 probability;
+        regression properties output normalised −1 to 0 score.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PropertyPredictionRequest'
+            example:
+              inputs:
+                smiles_list: ["CC(=O)Oc1ccccc1C(=O)O"]
+                tasks: ["solubility", "toxicity", "bioavailability", "herg_cardiotoxicity"]
+              parameters: {}
+      responses:
+        '200':
+          description: Successful property prediction
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PropertyPredictionResponse'
+        '401':
+          description: Missing API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /drug-target-interaction:
+    post:
+      summary: Drug–Target Interaction
+      description: >
+        Predict binding affinity between a small-molecule drug (SMILES) and a protein target
+        (amino-acid sequence) using the DeepPurpose framework with configurable encoders.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DTIRequest'
+            example:
+              inputs:
+                drug_smiles: "CC(=O)Oc1ccccc1C(=O)O"
+                target_sequence: "MLARALLLCAVLALSHTANPCCSHPCQNRGVCMSVGFDQYKCDCTRTGFYGENCSTPEFLTRIKLFLKPTPNTVHYILTHFKGFWNVVNNIPFLRNAIMSYVLTSRSHLIDSPPTYNADYGYKSWEAFSNLSYYTRALPPVPDDCPTPLGVKGKKQLPDSNEIVEKLLLRRKFIPD"
+                target_name: "COX-2"
+                drug_encoding: "MPNN"
+                target_encoding: "CNN"
+              parameters: {}
+      responses:
+        '200':
+          description: Successful DTI prediction
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DTIResponse'
+        '401':
+          description: Missing API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /diffdock-hf:
+    post:
+      summary: Molecular Docking (DiffDock)
+      description: >
+        Diffusion-based blind molecular docking. No binding box or crystal structure required.
+        Returns multiple ranked binding poses with confidence scores and estimated ΔG.
+        Timeout: 300 seconds.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DiffDockRequest'
+            example:
+              inputs:
+                ligand_smiles: "CC(C)Cc1ccc(cc1)C(C)C(=O)O"
+                protein_sequence: "MENFQKVEKIGEGTYGVVYKARNKLTGEVVALK"
+                complex_name: "cdk2_ibuprofen"
+              parameters:
+                samples_per_complex: 2
+                inference_steps: 4
+      responses:
+        '200':
+          description: Successful docking
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DiffDockResponse'
+        '401':
+          description: Missing API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /gnina-hf:
+    post:
+      summary: Pose Rescoring (GNINA)
+      description: >
+        CNN-based rescoring of DiffDock binding poses using GNINA.
+        Accepts the full /diffdock-hf JSON response and re-ranks poses by
+        minimizedAffinity, CNNscore, and CNNaffinity.
+        Timeout: 300 seconds.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GninaRequest'
+      responses:
+        '200':
+          description: Successful pose rescoring
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GninaResponse'
+        '401':
+          description: Missing API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /retrosynthesis:
+    post:
+      summary: Retrosynthesis
+      description: >
+        AI-planned multi-step backward synthetic route planning from a target molecule
+        to purchasable starting materials. Returns feasibility-ranked routes with
+        step-by-step conditions, yield estimates, and SA scores.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RetrosynthesisRequest'
+            example:
+              inputs:
+                target_smiles: "CC1=CC=C(C=C1)C2=CC(=NN2C3=CC=C(C=C3)S(=O)(=O)N)C(F)(F)F"
+                max_depth: 5
+                min_confidence: 0.3
+              parameters: {}
+      responses:
+        '200':
+          description: Successful retrosynthesis planning
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetrosynthesisResponse'
+        '401':
+          description: Missing API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'

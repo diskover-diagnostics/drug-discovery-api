@@ -1,0 +1,283 @@
+{
+  "info": {
+    "name": "Drug Discovery API",
+    "description": "Six AI-powered computational biology endpoints.\nBase URL: https://drug-discovery-orchestrator.fly.dev\n\nAuthentication: Set the 'partner_api_key' environment variable.\nAll requests use X-API-Key header automatically via the collection variable.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "version": "1.1.0"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "https://drug-discovery-orchestrator.fly.dev",
+      "type": "string"
+    },
+    {
+      "key": "partner_api_key",
+      "value": "YOUR_PARTNER_API_KEY",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health Check",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/health",
+          "host": ["{{base_url}}"],
+          "path": ["health"]
+        },
+        "description": "Returns orchestrator status and list of configured HF endpoints. No authentication required."
+      },
+      "response": [
+        {
+          "name": "Health OK",
+          "status": "OK",
+          "code": 200,
+          "body": "{\n  \"ok\": true,\n  \"partners_registered\": 1,\n  \"hf_token_set\": true,\n  \"endpoints\": [\n    \"molecule-generation\",\n    \"property-prediction\",\n    \"drug-target-interaction\",\n    \"diffdock-hf\",\n    \"gnina-hf\",\n    \"retrosynthesis\"\n  ]\n}"
+        }
+      ]
+    },
+    {
+      "name": "Task 1 — Molecule Generation",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "X-API-Key", "value": "{{partner_api_key}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"inputs\": {\n    \"masked_smiles\": \"CC(C)Cc1ccc(C(C)<mask>C(=O)O)cc1\",\n    \"top_k\": 5,\n    \"filter_valid\": true\n  }\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{base_url}}/molecule-generation",
+          "host": ["{{base_url}}"],
+          "path": ["molecule-generation"]
+        },
+        "description": "Fill <mask> tokens in a partial SMILES string to generate novel drug-like candidate molecules.\n\nReturns top-K completions with:\n- Model quality score (0–1)\n- Lipinski drug-likeness (Rule-of-Five)\n- Molecular descriptors (MW, LogP, HBD, HBA, TPSA, rotatable bonds)"
+      },
+      "response": [
+        {
+          "name": "Molecule Generation — Success",
+          "status": "OK",
+          "code": 200,
+          "body": "{\n  \"status\": \"success\",\n  \"model_info\": { \"name\": \"ChemBERTa-masked-SMILES\" },\n  \"statistics\": {\n    \"total_completions\": 5,\n    \"valid_molecules\": 4,\n    \"drug_like_molecules\": 3\n  },\n  \"completed_molecules\": [\n    {\n      \"completed_smiles\": \"CC(C)Cc1ccc(C(C)CC(=O)O)cc1\",\n      \"score\": 0.9821,\n      \"drug_like\": true,\n      \"lipinski_violations\": 0,\n      \"properties\": {\n        \"molecular_weight\": 220.31,\n        \"logp\": 3.12,\n        \"hbd\": 1,\n        \"hba\": 2,\n        \"tpsa\": 37.3,\n        \"rotatable_bonds\": 5\n      }\n    }\n  ]\n}"
+        }
+      ]
+    },
+    {
+      "name": "Task 2 — Property Prediction (Full ADMET)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "X-API-Key", "value": "{{partner_api_key}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"inputs\": {\n    \"smiles_list\": [\"CC(=O)Oc1ccccc1C(=O)O\"],\n    \"tasks\": [\n      \"solubility\",\n      \"toxicity\",\n      \"bioavailability\",\n      \"bbb_penetration\",\n      \"cyp_inhibition\",\n      \"herg_cardiotoxicity\",\n      \"caco2_permeability\",\n      \"lipophilicity\"\n    ]\n  },\n  \"parameters\": {}\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{base_url}}/property-prediction",
+          "host": ["{{base_url}}"],
+          "path": ["property-prediction"]
+        },
+        "description": "Predict ADMET and physicochemical properties using MTL-BERT.\n\nScore types:\n- Classification (solubility, toxicity, bioavailability, BBB, CYP, hERG): 0–1 probability. >0.5 = property is predicted present.\n- Regression (Caco-2, lipophilicity): normalised −1 to 0. Closer to 0 = more favourable."
+      },
+      "response": [
+        {
+          "name": "Property Prediction — Success",
+          "status": "OK",
+          "code": 200,
+          "body": "[\n  {\n    \"smiles\": \"CC(=O)Oc1ccccc1C(=O)O\",\n    \"properties\": {\n      \"solubility\": 0.72,\n      \"toxicity\": 0.13,\n      \"bioavailability\": 0.81,\n      \"bbb_penetration\": 0.31,\n      \"cyp_inhibition\": {\n        \"CYP3A4\": 0.11,\n        \"CYP2D6\": 0.08,\n        \"CYP2C9\": 0.14,\n        \"CYP2C19\": 0.10,\n        \"CYP1A2\": 0.09\n      },\n      \"herg_cardiotoxicity\": 0.09,\n      \"caco2_permeability\": -0.38,\n      \"lipophilicity\": -0.61\n    },\n    \"molecular_descriptors\": {\n      \"molecular_weight\": 180.16,\n      \"logp\": 1.19,\n      \"hbd\": 1,\n      \"hba\": 4,\n      \"tpsa\": 63.6,\n      \"rotatable_bonds\": 3\n    }\n  }\n]"
+        }
+      ]
+    },
+    {
+      "name": "Task 2b — Property Prediction (Batch)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "X-API-Key", "value": "{{partner_api_key}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"inputs\": {\n    \"smiles_list\": [\n      \"CC(=O)Oc1ccccc1C(=O)O\",\n      \"CC(C)Cc1ccc(cc1)C(C)C(=O)O\",\n      \"c1ccc2ccccc2c1\"\n    ],\n    \"tasks\": [\"solubility\", \"toxicity\", \"bioavailability\", \"herg_cardiotoxicity\"]\n  },\n  \"parameters\": {}\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{base_url}}/property-prediction",
+          "host": ["{{base_url}}"],
+          "path": ["property-prediction"]
+        },
+        "description": "Batch property prediction for multiple SMILES in a single call (Aspirin, Ibuprofen, Naphthalene)."
+      },
+      "response": []
+    },
+    {
+      "name": "Task 3 — Drug–Target Interaction (Aspirin vs COX-2)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "X-API-Key", "value": "{{partner_api_key}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"inputs\": {\n    \"drug_smiles\": \"CC(=O)Oc1ccccc1C(=O)O\",\n    \"target_sequence\": \"MLARALLLCAVLALSHTANPCCSHPCQNRGVCMSVGFDQYKCDCTRTGFYGENCSTPEFLTRIKLFLKPTPNTVHYILTHFKGFWNVVNNIPFLRNAIMSYVLTSRSHLIDSPPTYNADYGYKSWEAFSNLSYYTRALPPVPDDCPTPLGVKGKKQLPDSNEIVEKLLLRRKFIPD\",\n    \"target_name\": \"COX-2\",\n    \"drug_encoding\": \"MPNN\",\n    \"target_encoding\": \"CNN\"\n  },\n  \"parameters\": {}\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{base_url}}/drug-target-interaction",
+          "host": ["{{base_url}}"],
+          "path": ["drug-target-interaction"]
+        },
+        "description": "Predict binding affinity between Aspirin and COX-2 using MPNN drug encoding + CNN target encoding.\n\nBinding affinity: lower (more negative) = stronger binding.\nConfidence: 0–1 (model certainty).\nInteraction strength: Strong / Moderate / Weak."
+      },
+      "response": [
+        {
+          "name": "DTI — Success",
+          "status": "OK",
+          "code": 200,
+          "body": "{\n  \"drug_smiles\": \"CC(=O)Oc1ccccc1C(=O)O\",\n  \"target_name\": \"COX-2\",\n  \"target_sequence_length\": 181,\n  \"binding_prediction\": {\n    \"binding_affinity\": -7.42,\n    \"confidence\": 0.83,\n    \"interaction_strength\": \"Strong\",\n    \"clinical_relevance\": \"High\",\n    \"prediction_method\": \"MPNN+CNN\"\n  },\n  \"drug_properties\": {\n    \"molecular_weight\": 180.16,\n    \"logp\": 1.19\n  },\n  \"protein_properties\": {\n    \"sequence_length\": 181\n  }\n}"
+        }
+      ]
+    },
+    {
+      "name": "Task 3b — Drug–Target Interaction (Ibuprofen vs CDK2)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "X-API-Key", "value": "{{partner_api_key}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"inputs\": {\n    \"drug_smiles\": \"CC(C)Cc1ccc(cc1)C(C)C(=O)O\",\n    \"target_sequence\": \"MENFQKVEKIGEGTYGVVYKARNKLTGEVVALKKIRLDTETEGVPSTAIREISLLKELNHPNIVKLLDVIHTENKLYLVFEFLHQDLKKFMDASALTGIPLPLIKSYLFQLLQGLAFCHSHRVLHRDLKPQNLLINTEGAIKLADFGLARAFGVPVRTYTHEVVTLWYRAPEILLGCKYYSTAVDIWSLGCIFAEMVTRRALFPGDSEIDQLFSRILLGTPNEAIWPDIVYLPDFKPSFPQWRRKDLSQVVPSLDPRGIDLLDKLLAKNLVEDAHSLTSGSTPTLSSSAGSVTPMSTKVLV\",\n    \"target_name\": \"CDK2\",\n    \"drug_encoding\": \"Morgan\",\n    \"target_encoding\": \"Transformer\"\n  },\n  \"parameters\": {}\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{base_url}}/drug-target-interaction",
+          "host": ["{{base_url}}"],
+          "path": ["drug-target-interaction"]
+        },
+        "description": "Predict binding affinity between Ibuprofen and CDK2 using Morgan fingerprint + Transformer encoding."
+      },
+      "response": []
+    },
+    {
+      "name": "Task 4 — Molecular Docking — DiffDock (Ibuprofen vs CDK2)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "X-API-Key", "value": "{{partner_api_key}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"inputs\": {\n    \"ligand_smiles\": \"CC(C)Cc1ccc(cc1)C(C)C(=O)O\",\n    \"protein_sequence\": \"MENFQKVEKIGEGTYGVVYKARNKLTGEVVALKKIRLDTETEGVPSTAIREISLLKELNHPNIVKLLDVIHTENKLYLVFEFLHQDLKKFMDASALTGIPLPLIKSYLFQLLQGLAFCHSHRVLHRDLKPQNLLINTEGAIKLADFGLARAFGVPVRTYTHEVVTLWYRAPEILLGCKYYSTAVDIWSLGCIFAEMVTRRALFPGDSEIDQLFSRILLGTPNEAIWPDIVYLPDFKPSFPQWRRKDLSQVVPSLDPRGIDLLDKLLAKNLVEDAHSLTSGSTPTLSSSAGSVTPMSTKVLV\",\n    \"complex_name\": \"cdk2_ibuprofen\"\n  },\n  \"parameters\": {\n    \"samples_per_complex\": 2,\n    \"inference_steps\": 4\n  }\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{base_url}}/diffdock-hf",
+          "host": ["{{base_url}}"],
+          "path": ["diffdock-hf"]
+        },
+        "description": "Diffusion-based blind molecular docking — no binding box required.\n\nConfidence score: ≈ −5 to +5; >0 = likely near-native pose (RMSD < 2 Å).\nEst. ΔG: empirical proxy only — use GNINA for rigorous rescoring.\n\nTimeout: 300 s. Copy the full response JSON to use as input for Task 5 (Pose Rescoring)."
+      },
+      "response": [
+        {
+          "name": "DiffDock — Success",
+          "status": "OK",
+          "code": 200,
+          "body": "{\n  \"status\": \"success\",\n  \"complex_name\": \"cdk2_ibuprofen\",\n  \"ligand_smiles\": \"CC(C)Cc1ccc(cc1)C(C)C(=O)O\",\n  \"num_poses\": 2,\n  \"best_confidence\": 1.24,\n  \"best_estimated_dG_kcal_mol\": -7.86,\n  \"ligand_properties\": {\n    \"molecular_weight\": 206.28,\n    \"logp\": 3.72,\n    \"hbd\": 1,\n    \"hba\": 2\n  },\n  \"poses\": [\n    {\n      \"rank\": 1,\n      \"confidence\": 1.24,\n      \"estimated_dG_kcal_mol\": -7.86,\n      \"pose_centroid_xyz\": { \"x\": 12.4, \"y\": -3.1, \"z\": 8.7 }\n    },\n    {\n      \"rank\": 2,\n      \"confidence\": 0.61,\n      \"estimated_dG_kcal_mol\": -6.92,\n      \"pose_centroid_xyz\": { \"x\": 9.1, \"y\": -5.3, \"z\": 11.2 }\n    }\n  ],\n  \"protein_pdb\": \"ATOM      1  N   MET A   1 ...\"\n}"
+        }
+      ]
+    },
+    {
+      "name": "Task 5 — Pose Rescoring — GNINA",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "X-API-Key", "value": "{{partner_api_key}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"inputs\": {\n    \"diffdock_output\": {\n      \"status\": \"success\",\n      \"complex_name\": \"cdk2_ibuprofen\",\n      \"ligand_smiles\": \"CC(C)Cc1ccc(cc1)C(C)C(=O)O\",\n      \"num_poses\": 2,\n      \"best_confidence\": 1.24,\n      \"best_estimated_dG_kcal_mol\": -7.86,\n      \"poses\": [\n        {\n          \"rank\": 1,\n          \"confidence\": 1.24,\n          \"estimated_dG_kcal_mol\": -7.86,\n          \"pose_centroid_xyz\": { \"x\": 12.4, \"y\": -3.1, \"z\": 8.7 }\n        },\n        {\n          \"rank\": 2,\n          \"confidence\": 0.61,\n          \"estimated_dG_kcal_mol\": -6.92,\n          \"pose_centroid_xyz\": { \"x\": 9.1, \"y\": -5.3, \"z\": 11.2 }\n        }\n      ],\n      \"protein_pdb\": \"ATOM      1  N   MET A   1 ...\"\n    },\n    \"top_n_poses\": 2\n  },\n  \"parameters\": {\n    \"score_only\": true,\n    \"seed\": 0,\n    \"cpu\": 4\n  }\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{base_url}}/gnina-hf",
+          "host": ["{{base_url}}"],
+          "path": ["gnina-hf"]
+        },
+        "description": "CNN-based rescoring of DiffDock poses using GNINA.\n\nPaste the full /diffdock-hf response into 'diffdock_output'.\n\nScore interpretation:\n- minimizedAffinity (kcal/mol): more negative = stronger binding. Drug range: −4 to −12.\n- CNNscore (0–1): >0.5 = likely active binder.\n- CNNaffinity (pKi/pKd): 6 ≈ 1 µM potency, 9 ≈ 1 nM potency.\n\nTimeout: 300 s."
+      },
+      "response": [
+        {
+          "name": "GNINA Rescoring — Success",
+          "status": "OK",
+          "code": 200,
+          "body": "{\n  \"complex_name\": \"cdk2_ibuprofen\",\n  \"num_scored\": 2,\n  \"num_input_poses\": 2,\n  \"mode\": \"score_only\",\n  \"best_minimizedAffinity\": -8.14,\n  \"best_CNNscore\": 0.76,\n  \"best_CNNaffinity\": 7.3,\n  \"scored_poses\": [\n    {\n      \"diffdock_rank\": 1,\n      \"diffdock_confidence\": 1.24,\n      \"minimizedAffinity\": -8.14,\n      \"CNNscore\": 0.76,\n      \"CNNaffinity\": 7.3\n    },\n    {\n      \"diffdock_rank\": 2,\n      \"diffdock_confidence\": 0.61,\n      \"minimizedAffinity\": -6.87,\n      \"CNNscore\": 0.52,\n      \"CNNaffinity\": 6.1\n    }\n  ]\n}"
+        }
+      ]
+    },
+    {
+      "name": "Task 6 — Retrosynthesis (Celecoxib scaffold)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "X-API-Key", "value": "{{partner_api_key}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"inputs\": {\n    \"target_smiles\": \"CC1=CC=C(C=C1)C2=CC(=NN2C3=CC=C(C=C3)S(=O)(=O)N)C(F)(F)F\",\n    \"max_depth\": 5,\n    \"min_confidence\": 0.3\n  },\n  \"parameters\": {}\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{base_url}}/retrosynthesis",
+          "host": ["{{base_url}}"],
+          "path": ["retrosynthesis"]
+        },
+        "description": "Plan multi-step backward synthetic routes for a target molecule (Celecoxib scaffold).\n\nfeasibility_score (0–1): higher = more synthetically feasible.\nSA score (1–10): 1 = trivially easy, 10 = extremely difficult. Drug candidates typically 1–4.\noverall_yield: compounded yield estimate across all steps.\nstep.confidence (0–1): model certainty for each individual reaction."
+      },
+      "response": [
+        {
+          "name": "Retrosynthesis — Success",
+          "status": "OK",
+          "code": 200,
+          "body": "{\n  \"status\": \"success\",\n  \"target_molecule\": \"CC1=CC=C(C=C1)C2=CC(=NN2C3=CC=C(C=C3)S(=O)(=O)N)C(F)(F)F\",\n  \"routes_found\": 2,\n  \"best_route_feasibility\": 0.87,\n  \"model_info\": { \"name\": \"GLN-Retrosynthesis\" },\n  \"synthesis_routes\": [\n    {\n      \"route_id\": 1,\n      \"feasibility_score\": 0.87,\n      \"synthetic_accessibility\": 2.4,\n      \"overall_yield\": \"34%\",\n      \"total_steps\": 3,\n      \"estimated_cost\": \"$120\",\n      \"estimated_time\": \"2 days\",\n      \"starting_materials\": [\"CC1=CC=CC=C1\", \"NNS(=O)(=O)c1ccc(cc1)\"],\n      \"steps\": [\n        {\n          \"step\": 1,\n          \"reaction_type\": \"Condensation\",\n          \"reactants\": [\"CC1=CC=CC=C1\", \"NNS(=O)(=O)c1ccc(cc1)\"],\n          \"confidence\": 0.91,\n          \"yield_estimate\": \"65%\",\n          \"conditions\": {\n            \"solvent\": \"EtOH\",\n            \"temperature\": \"80°C\",\n            \"catalyst\": \"AcOH\",\n            \"time\": \"4h\"\n          }\n        }\n      ]\n    }\n  ]\n}"
+        }
+      ]
+    },
+    {
+      "name": "Task 6b — Retrosynthesis (Ibuprofen)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "X-API-Key", "value": "{{partner_api_key}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"inputs\": {\n    \"target_smiles\": \"CC(C)Cc1ccc(cc1)C(C)C(=O)O\",\n    \"max_depth\": 3,\n    \"min_confidence\": 0.5\n  },\n  \"parameters\": {}\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{base_url}}/retrosynthesis",
+          "host": ["{{base_url}}"],
+          "path": ["retrosynthesis"]
+        },
+        "description": "Retrosynthesis for Ibuprofen — simple molecule, expect short routes with high feasibility."
+      },
+      "response": []
+    }
+  ]
+}
